@@ -1,4 +1,3 @@
-import { StatusBar } from "expo-status-bar";
 import {
   StyleSheet,
   Text,
@@ -7,14 +6,17 @@ import {
   FlatList,
   TouchableOpacity,
   Image,
+  Pressable,
 } from "react-native";
 import { useEffect, useState } from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 function HomeScreen() {
+  const navigation = useNavigation();
+
   const [countdowns, addCountdown] = useState([]);
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
 
@@ -45,7 +47,10 @@ function HomeScreen() {
         const seconds = Math.floor(diff / 1000);
 
         if (seconds > 0) {
-          newCountdowns.push(seconds);
+          newCountdowns.push({
+            calculated: seconds,
+            countdown: countdowns[i].countdownDate,
+          });
         }
       }
       setCalculatedCountdowns(newCountdowns);
@@ -85,19 +90,30 @@ function HomeScreen() {
     <View>
       {calculatedCountdowns.length > 0 && (
         <FlatList
+          style={{
+            height: "100%",
+          }}
           data={calculatedCountdowns}
           renderItem={({ item }) => (
-            <Text
-              style={{
-                textAlign: "center",
-                fontSize: 30,
-                backgroundColor: "lightgreen",
-                margin: 10,
-                borderRadius: 10,
-              }}
+            <Pressable
+              onPress={() =>
+                navigation.navigate("FullScreenCountdown", {
+                  countdownDate: item.countdown,
+                })
+              }
             >
-              {item}
-            </Text>
+              <Text
+                style={{
+                  textAlign: "center",
+                  fontSize: 30,
+                  backgroundColor: "lightgreen",
+                  margin: 10,
+                  borderRadius: 10,
+                }}
+              >
+                {item.calculated}
+              </Text>
+            </Pressable>
           )}
         />
       )}
@@ -119,12 +135,149 @@ function HomeScreen() {
         />
       </TouchableOpacity>
 
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => {
+          // Go to CitiesScreen
+          navigation.navigate("Cities");
+        }}
+        style={{
+          position: "absolute",
+          width: 50,
+          height: 50,
+          alignItems: "center",
+          justifyContent: "center",
+          right: 10,
+          top: 100,
+        }}
+      >
+        <Image
+          // FAB using TouchableOpacity with an image
+          // For online image
+          source={{
+            uri: "https://cdn1.iconfinder.com/data/icons/landscape-v-2/512/Landscape_Circle_2_512px_00043-512.png",
+          }}
+          // For local image
+          //source={require('./images/float-add-icon.png')}
+          style={styles.floatingButtonStyle}
+        />
+      </TouchableOpacity>
+
       <DateTimePickerModal
         isVisible={isDatePickerVisible}
         mode="time"
         onConfirm={handleConfirm}
         onCancel={hideDatePicker}
       />
+    </View>
+  );
+}
+
+function CitiesScreen() {
+  const [cities, setCities] = useState([]);
+
+  useEffect(() => {
+    fetch("https://avancera.app/cities")
+      .then((response) => response.json())
+      .then((json) => setCities(json));
+  }, []);
+
+  return (
+    <View>
+      <FlatList
+        style={{
+          height: "100%",
+        }}
+        data={cities}
+        renderItem={({ item }) => (
+          <Text
+            style={{
+              textAlign: "center",
+              fontSize: 30,
+              backgroundColor: "pink",
+              margin: 10,
+              borderRadius: 10,
+            }}
+          >
+            {item.name}
+          </Text>
+        )}
+      />
+    </View>
+  );
+}
+
+function FullScreenCountdown({ route }) {
+  const navigation = useNavigation();
+
+  const { countdownDate } = route.params;
+
+  // Convert countdownDate to a Date object
+  const countdownDateObject = new Date(parseInt(countdownDate));
+
+  const [calculatedCountdown, setCalculatedCountdown] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const diff = countdownDateObject - now;
+      const seconds = diff / 1000;
+      const minutes = seconds / 60;
+      const hours = minutes / 60;
+      setCalculatedCountdown({
+        hours: hours.toFixed(2),
+        minutes: minutes.toFixed(2),
+        seconds: seconds.toFixed(2),
+      });
+      if (seconds < 0) {
+        navigation.navigate("Home");
+      }
+    }, 10);
+    return () => clearInterval(interval);
+  }, [countdownDateObject]);
+
+  return (
+    <View>
+      <Text
+        style={{
+          textAlign: "center",
+          fontSize: 100,
+          fontVariant: ["tabular-nums"],
+          backgroundColor: "lightgreen",
+        }}
+      >
+        {countdownDateObject.toLocaleTimeString()}
+      </Text>
+      <Text
+        style={{
+          textAlign: "center",
+          fontSize: 50,
+          fontVariant: ["tabular-nums"],
+          marginBottom: 20,
+        }}
+      >
+        {calculatedCountdown.hours + " in hours"}
+      </Text>
+      <Text
+        style={{
+          textAlign: "center",
+          fontSize: 50,
+          fontVariant: ["tabular-nums"],
+          marginBottom: 20,
+        }}
+      >
+        {calculatedCountdown.minutes + " in minutes"}
+      </Text>
+      <Text
+        style={{
+          textAlign: "center",
+          fontSize: 50,
+          fontVariant: ["tabular-nums"],
+          marginBottom: 20,
+        }}
+      >
+        {calculatedCountdown.seconds + " in seconds"}
+      </Text>
     </View>
   );
 }
@@ -139,6 +292,15 @@ export default function App() {
       <NavigationContainer>
         <Stack.Navigator>
           <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="Cities" component={CitiesScreen} />
+          <Stack.Screen
+            name="FullScreenCountdown"
+            component={FullScreenCountdown}
+            // Param with the time to countdown to
+            options={({ route }) => ({
+              countdownDate: route.params.countdownDate,
+            })}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </>
