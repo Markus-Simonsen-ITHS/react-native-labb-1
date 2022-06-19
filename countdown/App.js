@@ -7,12 +7,18 @@ import {
   TouchableOpacity,
   Image,
   Pressable,
+  RefreshControl,
+  StatusBar,
+  Switch,
+  ImageBackground,
+  Alert,
 } from "react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 function HomeScreen() {
   const navigation = useNavigation();
@@ -44,11 +50,12 @@ function HomeScreen() {
         const countdownDate = new Date(parseInt(countdown.countdownDate));
         const now = new Date();
         const diff = countdownDate - now;
-        const seconds = Math.floor(diff / 1000);
+        const seconds = diff / 1000;
+        const minutes = seconds / 60;
 
         if (seconds > 0) {
           newCountdowns.push({
-            calculated: seconds,
+            calculated: minutes.toFixed(2),
             countdown: countdowns[i].countdownDate,
           });
         }
@@ -68,55 +75,133 @@ function HomeScreen() {
 
   const handleConfirm = async (date) => {
     date.setSeconds(0);
-    const tempCountdowns = [
-      ...countdowns,
-      {
-        countdownDate: date.getTime(),
-      },
-    ];
+    date.setMilliseconds(0);
 
-    addCountdown(tempCountdowns);
-
-    try {
-      await AsyncStorage.setItem("countdowns", JSON.stringify(tempCountdowns));
-    } catch (e) {
-      console.log(e);
+    if (date.getTime() < new Date().getTime()) {
+      date.setHours(date.getHours() + 24);
     }
 
-    hideDatePicker();
+    // Check if the date is already in the list
+    let found = false;
+    for (let i = 0; i < countdowns.length; i++) {
+      if (countdowns[i].countdownDate === date.getTime()) {
+        found = true;
+      }
+    }
+
+    if (!found) {
+      const tempCountdowns = [
+        ...countdowns,
+        {
+          countdownDate: date.getTime(),
+        },
+      ];
+
+      addCountdown(tempCountdowns);
+
+      try {
+        await AsyncStorage.setItem(
+          "countdowns",
+          JSON.stringify(tempCountdowns)
+        );
+      } catch (e) {
+        console.log(e);
+      }
+
+      hideDatePicker();
+    } else {
+      Alert.alert("Date already exists", "Please choose another date");
+      setDatePickerVisibility(false);
+    }
   };
 
   return (
     <View>
-      {calculatedCountdowns.length > 0 && (
-        <FlatList
-          style={{
-            height: "100%",
-          }}
-          data={calculatedCountdowns}
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() =>
-                navigation.navigate("FullScreenCountdown", {
-                  countdownDate: item.countdown,
-                })
-              }
+      <FlatList
+        style={{
+          height: "100%",
+        }}
+        data={calculatedCountdowns}
+        ListEmptyComponent={() => (
+          <Text
+            style={{
+              textAlign: "center",
+              fontSize: 30,
+              backgroundColor: "pink",
+              margin: 10,
+              borderRadius: 10,
+            }}
+          >
+            {"No Countdowns,\nadd one by clicking\nthe plus button"}
+          </Text>
+        )}
+        renderItem={({ item }) => (
+          <Pressable
+            onPress={() =>
+              navigation.navigate("FullScreenCountdown", {
+                countdownDate: item.countdown,
+              })
+            }
+            style={({ pressed }) => [
+              {
+                transform: [
+                  {
+                    scale: pressed ? 0.95 : 1,
+                  },
+                ],
+              },
+            ]}
+            onLongPress={() => {
+              const tempCountdowns = [...countdowns];
+              const index = tempCountdowns.findIndex(
+                (countdown) => countdown.countdownDate === item.countdown
+              );
+              tempCountdowns.splice(index, 1);
+              Alert.alert(
+                "Delete countdown",
+                "Are you sure you want to delete this countdown?",
+                [
+                  {
+                    text: "Cancel",
+                    style: "cancel",
+                  },
+                  {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                      addCountdown(tempCountdowns);
+                      try {
+                        await AsyncStorage.setItem(
+                          "countdowns",
+                          JSON.stringify(tempCountdowns)
+                        );
+                      } catch (e) {
+                        console.log(e);
+                      }
+                    },
+                  },
+                ],
+                { cancelable: true }
+              );
+            }}
+          >
+            <Text
+              style={{
+                textAlign: "center",
+                fontSize: 30,
+                backgroundColor: "lightgreen",
+                margin: 10,
+                borderRadius: 10,
+                fontVariant: ["tabular-nums"],
+              }}
             >
-              <Text
-                style={{
-                  textAlign: "center",
-                  fontSize: 30,
-                  backgroundColor: "lightgreen",
-                  margin: 10,
-                  borderRadius: 10,
-                }}
-              >
-                {item.calculated}
-              </Text>
-            </Pressable>
-          )}
-        />
-      )}
+              {item.calculated +
+                "\nminutes until\n" +
+                new Date(item.countdown).toLocaleTimeString()}
+            </Text>
+          </Pressable>
+        )}
+      />
 
       <TouchableOpacity
         activeOpacity={0.7}
@@ -175,6 +260,7 @@ function HomeScreen() {
 
 function CitiesScreen() {
   const [cities, setCities] = useState([]);
+  const [toggle, setToggle] = useState(false);
 
   useEffect(() => {
     fetch("https://avancera.app/cities")
@@ -182,27 +268,64 @@ function CitiesScreen() {
       .then((json) => setCities(json));
   }, []);
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+
+    fetch("https://avancera.app/cities")
+      .then((response) => response.json())
+      .then((json) => setCities(json))
+      .then(() => setRefreshing(false))
+      .catch((error) => {
+        console.log(error);
+        setRefreshing(false);
+      });
+  }, []);
+
   return (
     <View>
-      <FlatList
-        style={{
-          height: "100%",
+      <StatusBar barStyle="dark-content" backgroundColor="white" />
+      <ImageBackground
+        source={{
+          uri: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/Gamla_staden%2C_Malm%C3%B6%2C_Sweden_-_panoramio_(50).jpg/1200px-Gamla_staden%2C_Malm%C3%B6%2C_Sweden_-_panoramio_(50).jpg",
         }}
-        data={cities}
-        renderItem={({ item }) => (
-          <Text
+      >
+        <SafeAreaView>
+          <FlatList
             style={{
-              textAlign: "center",
-              fontSize: 30,
-              backgroundColor: "pink",
-              margin: 10,
-              borderRadius: 10,
+              height: "100%",
             }}
-          >
-            {item.name}
-          </Text>
-        )}
-      />
+            data={cities}
+            renderItem={({ item }) => (
+              <Text
+                style={{
+                  textAlign: "center",
+                  fontSize: 30,
+                  backgroundColor: "pink",
+                  margin: 10,
+                  borderRadius: 10,
+                }}
+              >
+                {item.name}
+              </Text>
+            )}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+            ListFooterComponent={() => (
+              <Switch
+                onValueChange={(value) => {
+                  alert(value);
+                  setToggle(value);
+                }}
+                value={toggle}
+                ios_backgroundColor="pink"
+              />
+            )}
+          />
+        </SafeAreaView>
+      </ImageBackground>
     </View>
   );
 }
@@ -216,6 +339,8 @@ function FullScreenCountdown({ route }) {
   const countdownDateObject = new Date(parseInt(countdownDate));
 
   const [calculatedCountdown, setCalculatedCountdown] = useState(0);
+
+  // useKeepAwake();
 
   useEffect(() => {
     const interval = setInterval(() => {
